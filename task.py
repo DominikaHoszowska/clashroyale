@@ -37,7 +37,7 @@ train2.head()
 #%%
 # Sort data by number of games played
 
-train2 = train2.sort_values('dist', ascending=False)
+train2 = train2.sort_values('numof', ascending=False)
 valid2 = valid2.sort_values('dist', ascending=False)
 #%%
 # Specify example model fitting function and R squared metric
@@ -55,7 +55,7 @@ sizes = (np.arange(10) + 6) * 100
 
 #%%
 train3=train2.iloc[:,4:]
-kmeans = KMeans(n_clusters=200)
+kmeans = KMeans(n_clusters=100)
 kmeans.fit(train3)
 # print location of clusters learned by kmeans object
 print(kmeans.cluster_centers_)
@@ -71,7 +71,7 @@ train3['ID']=train3.index
 df = train3.groupby('prediction')['ID'].nunique()
 #%%
 # Fit and predict on models of various training sizes
-fit_list = list(map(lambda size: fit_svr(train2.iloc[:size]), sizes))
+fit_list = list(map(lambda size: fit_svr(train3.iloc[:size]), sizes))
 pred_list = list(map(lambda fit: fit.predict(valid2.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1)),
                      fit_list))
 #%%
@@ -86,7 +86,7 @@ np.mean(r2)
 #%%`
 # Save hyperparameteres and selected indices in submission format
 
-train3 = train3.sort_values('dist', ascending=False)
+train3 = train3.sort_values('dist', ascending=True)
 open('example_sub_python.txt', 'w').close()
 
 with open('example_sub_python.txt', 'a') as f:
@@ -95,3 +95,31 @@ with open('example_sub_python.txt', 'a') as f:
         text = ';'.join(['0.02', '1.0', str(1.0 / 90), ind_text])
         f.write(text + '\n')
 #%%
+def getIndexesFromCluster(data, clasterID,numberOfElements,list):
+    pointsFromCluster=data[data['prediction'] == clasterID]
+    pointsFromCluster=pointsFromCluster.sort_values(by='dist', axis=0, ascending=True)
+    pointsFromCluster=pointsFromCluster[:numberOfElements]
+    l=pointsFromCluster.index.tolist()
+    for i in l:
+        list.append(i)
+
+
+def getIndex(data,numberOfClusters, numberOfElements, lista):
+    num=int(numberOfElements/numberOfClusters)
+    for i in range(numberOfClusters):
+        getIndexesFromCluster(data, i, num, lista)
+
+#%%
+
+open('clusters.txt', 'w').close()
+
+with open('clusters.txt', 'a') as f:
+    for size in sizes:
+        ind_text = ','.join(list(map(str, getIndex(train3,100,size))))
+        text = ';'.join(['0.02', '1.0', str(1.0 / 90), ind_text])
+        f.write(text + '\n')
+# %%
+l=list()
+getIndex(train3, 100, 600, l)
+
+
