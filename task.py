@@ -48,7 +48,7 @@ def R2(x, y):
 
 def fit_svr(data):
     svr = SVR(kernel='rbf', gamma=1.0/90, C=1.0, epsilon=0.02, shrinking=False)
-    svr.fit(data.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1), data['winRate'])
+    svr.fit(data, data['winRate'])
     return svr
 
 sizes = (np.arange(10) + 6) * 100
@@ -63,9 +63,7 @@ print(kmeans.cluster_centers_)
 y_km = kmeans.fit_predict(train3)
 #%%
 train3_dist=kmeans.transform(train3)
-#%%
 train3['dist']=train3_dist.min(axis=1)
-#%%
 train3['prediction']=y_km
 train3['ID']=train3.index
 df = train3.groupby('prediction')['ID'].nunique()
@@ -115,11 +113,43 @@ open('clusters.txt', 'w').close()
 
 with open('clusters.txt', 'a') as f:
     for size in sizes:
-        ind_text = ','.join(list(map(str, getIndex(train3,100,size))))
-        text = ';'.join(['0.02', '1.0', str(1.0 / 90), ind_text])
-        f.write(text + '\n')
+        l = list()
+        getIndex(train3, 100, size, l)
+        text = ';'.join(['0.02', '1.0', str(1.0 / 90)])
+        f.write(text)
+        f.write(";")
+        for item in l:
+            f.write("%s" % item )
+            if(l.index(item)+1!=size):
+                f.write(",")
+        f.write("\n")
 # %%
 l=list()
 getIndex(train3, 100, 600, l)
 
+# %%
+for size in sizes:
+    l = list()
+    getIndex(train3, 100, size, l)
+    train4 = train3.loc[l]
+    train4=train4.drop('dist', axis=1)
+    train4=train4.drop('ID', axis=1)
+    train4=train4.drop('prediction', axis=1)
 
+
+#%%
+
+
+# Fit and predict on models of various training sizes
+fit_list = list(map(lambda size: fit_svr(train3.iloc[:size]), sizes))
+pred_list = list(map(lambda fit: fit.predict(valid2.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1)),
+                     fit_list))
+#%%
+# Calculate R squared scores
+
+r2 = list(map(lambda p: R2(p, valid2['winRate']), pred_list))
+r2
+#%%
+_ = plt.plot(sizes, r2)
+#%%
+np.mean(r2)
