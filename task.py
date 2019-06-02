@@ -54,7 +54,7 @@ def fit_svr(data):
 sizes = (np.arange(10) + 6) * 100
 
 #%%
-train3=train2.iloc[:,4:]
+train3=train2.iloc[:,3:]
 kmeans = KMeans(n_clusters=100)
 kmeans.fit(train3)
 # print location of clusters learned by kmeans object
@@ -101,7 +101,6 @@ def getIndexesFromCluster(data, clasterID,numberOfElements,list):
     for i in l:
         list.append(i)
 
-
 def getIndex(data,numberOfClusters, numberOfElements, lista):
     num=int(numberOfElements/numberOfClusters)
     for i in range(numberOfClusters):
@@ -128,6 +127,7 @@ l=list()
 getIndex(train3, 100, 600, l)
 
 # %%
+trainingsets=list()
 for size in sizes:
     l = list()
     getIndex(train3, 100, size, l)
@@ -135,21 +135,22 @@ for size in sizes:
     train4=train4.drop('dist', axis=1)
     train4=train4.drop('ID', axis=1)
     train4=train4.drop('prediction', axis=1)
+    fit_list = list(map(lambda size: fit_svr(train4), sizes))
 
-
-#%%
-
-
-# Fit and predict on models of various training sizes
-fit_list = list(map(lambda size: fit_svr(train3.iloc[:size]), sizes))
-pred_list = list(map(lambda fit: fit.predict(valid2.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1)),
-                     fit_list))
-#%%
-# Calculate R squared scores
-
-r2 = list(map(lambda p: R2(p, valid2['winRate']), pred_list))
-r2
-#%%
-_ = plt.plot(sizes, r2)
-#%%
-np.mean(r2)
+# %%
+valid3=valid2.iloc[:,3:]
+r2=list()
+for size in sizes:
+    l = list()
+    getIndex(train3, 100, size, l)
+    train4 = train3.loc[l]
+    train4=train4.drop('dist', axis=1)
+    train4=train4.drop('ID', axis=1)
+    train4=train4.drop('prediction', axis=1)
+    fit = fit_svr(train4)
+    pred=fit.predict(valid3)
+    r=R2(pred, valid2['winRate'])
+    r2.append(tuple((size, r)))
+plt.scatter(*zip(*r2))
+plt.show()
+print(mean([x[1] for x in r2]))
