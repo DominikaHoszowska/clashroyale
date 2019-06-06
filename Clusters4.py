@@ -43,13 +43,25 @@ def to_bag_of_cards(df):
 # %%
 train = to_bag_of_cards(train)
 valid = to_bag_of_cards(valid)
-
+train.head()
+# %%
+valid.head()
 # %%
 # Sort data by number of games played
 
 train = train.sort_values('nofGames', ascending=False)
 valid = valid.sort_values('nofGames', ascending=False)
 
+toy = train.copy(deep=False)
+
+max_size = 20000 + 1
+toy = toy[1:max_size]
+
+toy['cluster'] = 0
+toy['density'] = 0
+toy['distance'] = 0
+
+toy.shape
 # solution = toy.iloc[:100].index.values.astype(int)
 # %%
 ## Specify example model fitting function and R squared metric
@@ -69,6 +81,7 @@ def fit_svm(data):
 
 
 sizes = (np.arange(10) + 6) * 100
+# %%
 from sklearn.cluster import SpectralClustering
 from sklearn import metrics
 
@@ -102,6 +115,14 @@ def cluster(data, n_of_clusters):
 
     return db, data1
 
+
+# %%
+spectral, toy = cluster(toy, 220)
+# %%
+toy.head()
+
+
+# %%
 def calculate_distance(df):
     # We select most dense clusters
 
@@ -116,39 +137,31 @@ def calculate_distance(df):
             df_dist_reduced).max()
     return df
 
-def select_centers(df, n):
+
+# %%
+toy = calculate_distance(toy)
+# %%
+toy.head()
+
+
+# %%
+def select_centers(df):
     clusters = np.unique(df['cluster'])
     solution = [100]
     for cluster in clusters:
         if df.loc[df['cluster'] == cluster].shape[0] > 60:
-            idx = df[df.cluster == cluster].nsmallest(n, 'distance').index.values.astype(int)
+            idx = df[df.cluster == cluster].nsmallest(8, 'distance').index.values.astype(int)
             solution = np.append(solution, idx)
     print(solution.shape)
     print(type(solution))
     return solution
 
+
 # %%
-neigh=np.arange(2)+6
-
-clusters=(np.arange(2)+1)*5+210
-
-#%%
-for n in neigh:
-    for c in clusters:
-        print("Neighbouirs %s", n )
-        print("Clusters %s", c )
-
-        toy = train.copy(deep=False)
-        max_size = 12000 + 1
-        toy = toy[1:max_size]
-        toy['cluster'] = 0
-        toy['density'] = 0
-        toy['distance'] = 0
-        spectral, toy = cluster(toy, c)
-        toy = calculate_distance(toy)
-        solution = select_centers(toy,n)
-        svr = fit_svm(toy.loc[solution])
-        print(R2(svr.predict(valid.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1)), valid['winRate']))
+solution = select_centers(toy)
+# %%
+svr = fit_svm(toy.loc[solution])
+print(R2(svr.predict(valid.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1)), valid['winRate']))
 
 
 # %%
@@ -207,8 +220,8 @@ def MCAL(df_clustered1, train_idx1):
     df_pool = df_clustered.drop(train_idx, axis=0)  # We drop observations we already have
     df_pool = df_pool[df_pool.cluster.isin(clusters)]
 
-    new_idx_number = 50  # We want that much new training samples
-    idx_clusters_number = min(max(int(len(clusters) * 0.4), min(3, len(clusters))), 20)
+    new_idx_number = 100  # We want that much new training samples
+    idx_clusters_number = min(max(int(len(clusters) * 0.8), min(5, len(clusters))), 20)
 
     idx_clusters = df_pool[['cluster', 'density']]
     idx_clusters = idx_clusters.drop_duplicates(subset='cluster')
@@ -219,7 +232,6 @@ def MCAL(df_clustered1, train_idx1):
     for clust in idx_clusters:
 
         dense = df_pool.loc[df_pool['cluster'] == clust, ['density']]  # Calculate density
-
         max_dense = int(dense.iloc[0])
 
         df_one = df_pool.loc[df_pool['cluster'] == clust].iloc[:, 4:94]  # Calculate distance
@@ -230,7 +242,8 @@ def MCAL(df_clustered1, train_idx1):
         # Now what we want to choose ( tylko to zostalo)
 
         number_idx = df_pool[df_pool.cluster == clust].shape[0]
-        number_idx = int(0.3 * number_idx)
+        if number_idx >= 2:
+            number_idx = min(int(number_idx), 8)
 
         if number_idx >= 1:
             new_observation = df_one.nsmallest(number_idx, 'distance').index.values.astype(int)
@@ -259,23 +272,9 @@ def iterate_MCAL(df, solution, iterate):
         b = c
     return b
 
-#%%
-toy = train.copy(deep=False)
-max_size = 10000
-toy = toy[1:max_size]
-toy['cluster'] = 0
-toy['density'] = 0
-toy['distance'] = 0
-spectral, toy = cluster(toy, 220)
-toy = calculate_distance(toy)
-solution = select_centers(toy,5)
-svr = fit_svm(toy.loc[solution])
-# %%
-print(R2(svr.predict(valid.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1)), valid['winRate']))
+
 # %%
 final = iterate_MCAL(toy, solution, 20)
-# %%
-final[0:10]
 # %%
 train1 = toy.loc[final]
 train1.head()
@@ -296,8 +295,8 @@ _ = plt.plot(sizes, r2)
 np.mean(r2)
 # %%
 # Save hyperparameteres and selected indices in submission format
-
-with open('sub_python1.txt', 'a') as f:
+open('sub.txt', 'w').close()
+with open('sub.txt', 'a') as f:
     for size in sizes:
         ind_text = ','.join(list(map(str, train1.index.values[:size])))
         text = ';'.join(['0.02', '1.0', str(1.0 / 90), ind_text])
