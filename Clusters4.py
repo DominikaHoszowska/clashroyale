@@ -3,8 +3,8 @@
 
 import pandas as pd
 import numpy as np
-import scipy as sp
 import sklearn
+import scipy as sp
 import matplotlib.pyplot as plt
 
 # %%
@@ -97,11 +97,11 @@ from sklearn.cluster import SpectralClustering
 from sklearn import metrics
 
 
-def cluster(data, n_of_clusters):
+def cluster(data, n_of_clusters,gamma):
     X = data.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate', 'cluster', 'density', 'distance'], axis=1)
 
     db = SpectralClustering(affinity='rbf',
-                            gamma=1.0 / 90,
+                            gamma=gamma,
                             n_clusters=n_of_clusters,
                             assign_labels="discretize",
                             random_state=0).fit(X)
@@ -136,17 +136,26 @@ toy.head()
 # %%
 def calculate_distance(df):
     # We select most dense clusters
-
+    df['distance'] = 0
     clusters = np.unique(df['cluster'])
+
     for cluster in clusters:
-        df_cluster = df.loc[df['cluster'] == cluster].iloc[:, 4:94]
+        # df_cluster = df.loc[df['cluster'] == cluster].iloc[:,4:94]
+        df_cluster = df.loc[df['cluster'] == cluster].drop(
+            ['deck', 'nofGames', 'nOfPlayers', 'winRate', 'cluster', 'density', 'distance'], axis=1)
         df_dist_reduced = sp.spatial.distance.pdist(df_cluster, 'hamming')
         distance = sp.spatial.distance.squareform(df_dist_reduced).sum(axis=1)
         df.loc[df['cluster'] == cluster, 'distance'] = distance
-        df.loc[df['cluster'] == cluster, 'density'] = df.loc[df[
-                                                                 'cluster'] == cluster, 'density'] / sp.spatial.distance.squareform(
-            df_dist_reduced).max()
+
+        max_distance = df.loc[df['cluster'] == cluster, 'distance'].max()
+        frequency = df.loc[df['cluster'] == cluster].shape[0]
+
+        if max_distance > 0:
+            df.loc[df['cluster'] == cluster, 'density'] = frequency / max_distance
+
     return df
+
+
 
 
 # %%
@@ -321,44 +330,169 @@ l=train.index
 for i in train:
     if i not in final:
         final.append(i)
+#%%
+results3 = pd.DataFrame(columns=['clusters', 'size', 'neigh', 'R2', 'gamma'])
 
 #%%
-clusters=(np.arange(1)+1)+215
-neigh=np.arange(6)+5
+clusters=(np.arange(5)+1)+215
+neigh=np.arange(3)+6
+gamma=1.0/((np.arange(10))*10+30)
 train = train.sort_values('nofGames', ascending=False)
 
 for c in clusters:
-    toy = train.copy(deep=False)
-    max_size = 10000 + 1
-    toy = toy[1:max_size]
-    toy['cluster'] = 0
-    toy['density'] = 0
-    toy['distance'] = 0
-    spectral, toy = cluster(toy, c)
-    toy = calculate_distance(toy)
+    for g in gamma:
+        toy = train.copy(deep=False)
+        max_size = 10000 + 1
+        toy = toy[1:max_size]
+        toy['cluster'] = 0
+        toy['density'] = 0
+        toy['distance'] = 0
+        spectral, toy = cluster(toy, c,g)
+        toy = calculate_distance(toy)
+        for size in sizes:
+            for n in neigh:
+                print(size, n)
+                solution = select_centers(toy, n)
+                svr = fit_svm(toy.loc[solution])
+                final = iterate_MCAL(toy, solution, 20)
+                train1 = toy.loc[final]
+
+                fit_list = fit_svm(train1.iloc[:size])
+
+                pred_list = fit_list.predict(valid.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1))
+
+                r2 = R2(pred_list, valid['winRate'])
+                df2 = pd.DataFrame([[c, size, n, r2,g]], columns=['clusters', 'size', 'neigh','R2','gamma'])
+                results3=results3.append(df2, ignore_index=True)
+
+#%%
+np.savetxt('paramGammaCluster2.txt', results3.values, fmt='%f')
+#%%
+for size in sizes:
+    df=results3[results3['size']==size]
+    df = df.sort_values('R2', ascending=False)
+    c=df.iloc[0,0]
+    g=df.iloc[0,4]
+    n=df.iloc[0,2]
+    print('clustes: ', c)
+    print('gamma: ', g)
+    print('neigh: ', n)
+#%%
+results3=pd.read_csv('paramGammaCluster .txt',sep=' ')
+results3.columns=['clusters', 'size', 'neigh', 'R2', 'gamma']
+results3['clusters']=results3['clusters'].astype('int64')
+results3['size']=results3['size'].astype('int64')
+results3['neigh']=results3['neigh'].astype('int64')
+
+#%%
+final2=list()
+best = pd.DataFrame(columns=['clusters', 'size', 'gamma', 'R2'])
+for size in sizes:
+    r=results3[results3['size']==size]
+    r = r.sort_values('R2', ascending=False)
+    best = best.append(r.iloc[0,:], ignore_index=True)
+c=best['clusters'].unique()
+#%%
+for c1 in c:
+    clust=best[best['clusters']==c1]
+    gam=clust['gamma'].unique()
+    for g in gam:
+        toy = train.copy(deep=False)
+        max_size = 10000 + 1
+        toy = toy[1:max_size]
+        toy['cluster'] = 0
+        toy['density'] = 0
+        toy['distance'] = 0
+        spectral, toy = cluster(toy, int(c1), g)
+        toy = calculate_distance(toy)
+        gam2=clust[clust['gamma']==g]
+        size2=gam2['size'].unique()
+        for s in size2:
+            size3=gam2[gam2['size']==s]
+            neigh=size3['neigh'].unique()
+            for n in neigh:
+                solution = select_centers(toy, int(n))
+                svr = fit_svm(toy.loc[solution])
+                final = iterate_MCAL(toy, solution, 20)
+                train1 = toy.loc[final]
+                final = np.array(final)
+                finalt = final[:int(s)]
+                train1 = toy.loc[finalt]
+                final2.append(finalt)
+
+
+
+#%%
+final2=sorted(final2, key=len)
+
+for i in final2:
+    print(len(i))
+#%%
+r2=list()
+for size in sizes:
+    l = final2[int(size / 100 - 6)]
+    train1 = toy.loc[l]
+    fit = fit_svm(train1)
+    valid2 = valid.iloc[:, 4:]
+    pred = fit.predict(valid2)
+    r= R2(pred, valid['winRate'])
+    r2.append(r)
+print(np.mean(r2))
+#%%
+
+train1 = toy.loc[final]
+open('sub1.txt', 'w').close()
+with open('sub1.txt', 'a') as f:
     for size in sizes:
-        for n in neigh:
-            print(size, n)
-            solution = select_centers(toy, n)
-            svr = fit_svm(toy.loc[solution])
-            final = iterate_MCAL(toy, solution, 20)
-            train1 = toy.loc[final]
+        text = ';'.join(['0.02', '1.0', str(1.0 / 90)])
+        f.write(text)
+        f.write(';')
+        l=final2[int(size / 100 - 6)]
+        l=l.tolist()
+        for item in l:
+            f.write("%s" % item)
+            if (l.index(item) + 1 != size):
+                f.write(",")
+        f.write("\n")
 
-            fit_list = fit_svm(train1.iloc[:size])
 
-            pred_list = fit_list.predict(valid.drop(['deck', 'nofGames', 'nOfPlayers', 'winRate'], axis=1))
-
-            r2 = R2(pred_list, valid['winRate'])
-            df2 = pd.DataFrame([[c, size, n, r2]], columns=['clusters', 'size', 'neigh','R2'])
-            results=results.append(df2, ignore_index=True)
 
 
 
 
 #%%
+train1 = toy.loc[final]
+open('sub1.txt', 'w').close()
+with open('sub1.txt', 'a') as f:
+    for size in sizes:
+        text = ';'.join(['0.02', '1.0', str(1.0 / 90)])
+        f.write(text)
+        f.write(';')
+        l=final2[int(size / 100 - 6)]
+        l=l.tolist()
+        for item in l:
+            f.write("%s" % item)
+            if (l.index(item) + 1 != size):
+                f.write(",")
+        f.write("\n")
+#%%
+clust = best[best['clusters'] == 221]
+gam=clust['g'].unique()
+clust=clust[clust['gamma']== 0.01250]
+toy = calculate_distance(toy)
+size2=clust['size'].unique()
+solution = select_centers(toy, 6)
+svr = fit_svm(toy.loc[solution])
+final = iterate_MCAL(toy, solution, 20)
+train1 = toy.loc[final]
+for s in size2:
+    final = np.array(final)
+    final = final[:int(s)]
+    train1 = toy.loc[final]
+    final2.append(final)
 
 
-
+#%%
 for n in neigh:
     print(n)
     solution = select_centers(toy,n)
